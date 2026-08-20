@@ -3,21 +3,48 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import * as admin from 'firebase-admin';
+import { initializeApp, getApps, cert, applicationDefault } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
+import multer from 'multer';
+
+const upload = multer({ 
+  limits: { fileSize: 50 * 1024 * 1024 } // 50MB limit for file uploads
+});
+
+import fs from 'fs';
+
+let firebaseConfig: any = {};
+try {
+  const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+  if (fs.existsSync(configPath)) {
+    firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  }
+} catch (e) {}
 
 // Initialize Firebase Admin
-if (!admin.apps.length) {
+if (!getApps().length) {
   if (process.env.FIREBASE_SERVICE_ACCOUNT) {
     const serviceAccount = JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, 'base64').toString('utf8'));
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount)
+    initializeApp({
+      credential: cert(serviceAccount),
+      projectId: serviceAccount.project_id || firebaseConfig.projectId,
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || `${serviceAccount.project_id || firebaseConfig.projectId}.appspot.com`
     });
   } else {
     // Uses Application Default Credentials locally in AI Studio
-    admin.initializeApp();
+    initializeApp({
+      credential: applicationDefault(),
+      projectId: firebaseConfig.projectId || 'gen-lang-client-0026791312',
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || `${firebaseConfig.projectId || 'gen-lang-client-0026791312'}.appspot.com`
+    });
   }
 }
-const db = admin.firestore();
+
+// In some Firebase configurations (like AI Studio previews), the database has a specific ID
+const dbId = firebaseConfig.firestoreDatabaseId || 'ai-studio-webscraperarchiv-7efb3937-e03f-49a6-b9dc-a62dc967ef32';
+const db = dbId ? getFirestore(dbId) : getFirestore();
+const bucket = getStorage().bucket();
 
 async function startServer() {
   const app = express();
@@ -286,11 +313,15 @@ async function startServer() {
     }
   });
 
-  // API endpoint to upload a file to an entry
-  app.post('/api/history/:id/upload', async (req, res) => {
+  // API endpoint to upload a file to an entry (multipart/form-data)
+  app.post('/api/history/:id/upload', upload.single('file'), async (req, res) => {
     const { id } = req.params;
-    const { text, href, type } = req.body;
+    
     try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
       const docRef = db.collection('archives').doc(id);
       const doc = await docRef.get();
       if (!doc.exists) {
@@ -300,11 +331,30 @@ async function startServer() {
       const entry = doc.data();
       if (!isAuthorized(req, entry)) return res.status(403).json({ error: 'Cannot modify a published archive' });
       
+      const file = req.file;
+      const type = file.originalname.toLowerCase().endsWith('.pdf') ? 'pdf' : 'other';
+      const text = file.originalname;
+
+      // Upload to Firebase Storage
+      const storageFilePath = `archives/${id}/${Date.now()}_${file.originalname}`;
+      const storageFile = bucket.file(storageFilePath);
+      
+      await storageFile.save(file.buffer, {
+        metadata: {
+          contentType: file.mimetype,
+        },
+      });
+
+      // Make the file public to get a permanent URL
+      await storageFile.makePublic();
+      const href = storageFile.publicUrl();
+
       const newLinks = [...(entry?.links || []), { text, href, type }];
       await docRef.update({ links: newLinks });
-      res.json({ success: true });
+      res.json({ success: true, href });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error('File upload error:', e);
+      res.status(500).json({ error: e.message || 'File upload failed' });
     }
   });
 

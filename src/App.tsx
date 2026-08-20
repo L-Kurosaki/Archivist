@@ -138,28 +138,30 @@ function Dashboard() {
       const file = e.target.files[0];
       if (!file) return;
       
-      // limit to 500KB for Firestore document size limits
-      if (file.size > 500 * 1024) {
-        alert('File is too large for Firestore database (max 500KB per file).');
+      // Limit to 50MB for Firebase Storage
+      if (file.size > 50 * 1024 * 1024) {
+        alert('File is too large (max 50MB).');
         return;
       }
 
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const base64 = event.target?.result;
-        const type = file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'other';
-        try {
-          await fetch(`/api/history/${entryId}/upload`, {
-            method: 'POST',
-            headers: getHeaders(),
-            body: JSON.stringify({ text: file.name, href: base64, type }),
-          });
-          await fetchHistory();
-        } catch (err) {
-          console.error(err);
-        }
-      };
-      reader.readAsDataURL(file);
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        await fetch(`/api/history/${entryId}/upload`, {
+          method: 'POST',
+          // Do not set Content-Type header manually when using FormData, 
+          // the browser will set it to multipart/form-data with the correct boundary
+          headers: {
+             // Pass the secret header for authorization, but omit Content-Type
+            'x-admin-secret': getHeaders()['x-admin-secret'] || ''
+          },
+          body: formData,
+        });
+        await fetchHistory();
+      } catch (err) {
+        console.error(err);
+      }
     };
     input.click();
   };
