@@ -259,7 +259,7 @@ function Dashboard() {
                       disabled={isScraping}
                     />
                     <p className="mt-2 text-[10px] text-[#666]">
-                      For strict portals like eFundi/Sakai, right-click the page request in your browser's Network tab, select "Copy &gt; Copy Request Headers", and paste the JSON here to match your exact User-Agent and Session.
+                      For strict portals, right-click the page request in your browser's Network tab, select "Copy &gt; Copy Request Headers", and paste the JSON here to match your exact User-Agent and Session.
                     </p>
                   </div>
 

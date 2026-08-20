@@ -25,7 +25,14 @@ try {
 // Initialize Firebase Admin
 if (!getApps().length) {
   if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    const serviceAccount = JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, 'base64').toString('utf8'));
+    let serviceAccount;
+    try {
+      // Try to parse as raw JSON first (if the user pasted the JSON directly)
+      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    } catch (e) {
+      // Fallback: decode from base64
+      serviceAccount = JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, 'base64').toString('utf8'));
+    }
     initializeApp({
       credential: cert(serviceAccount),
       projectId: serviceAccount.project_id || firebaseConfig.projectId,
