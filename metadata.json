@@ -1,0 +1,6 @@
+{
+  "name": "Web Scraper & Archiver",
+  "description": "A tool to scrape websites, authenticate via cookies, extract PDFs/links, and store them in a local database.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
