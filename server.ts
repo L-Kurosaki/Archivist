@@ -3,6 +3,21 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
+import * as admin from 'firebase-admin';
+
+// Initialize Firebase Admin
+if (!admin.apps.length) {
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    const serviceAccount = JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, 'base64').toString('utf8'));
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount)
+    });
+  } else {
+    // Uses Application Default Credentials locally in AI Studio
+    admin.initializeApp();
+  }
+}
+const db = admin.firestore();
 
 async function startServer() {
   const app = express();
@@ -10,8 +25,11 @@ async function startServer() {
 
   app.use(express.json({ limit: '50mb' }));
 
-  // In-memory array to simulate a structured database
-  const database: any[] = [];
+  // Helper to check authorization (admin override via secret header)
+  const isAuthorized = (req: express.Request, entry: any) => {
+    const isAdmin = req.headers['x-admin-secret'] === 'mbsczhyzbxX&7';
+    return !entry.isPublished || isAdmin;
+  };
 
   // API endpoint to scrape a website
   app.post('/api/scrape', async (req, res) => {
@@ -156,7 +174,7 @@ async function startServer() {
         isPublished: false
       };
 
-      database.push(entry);
+      await db.collection('archives').doc(entry.id).set(entry);
       res.json(entry);
       
     } catch (error: any) {
@@ -169,99 +187,144 @@ async function startServer() {
         status: 'error',
         errorMessage: error.message || 'Failed to fetch the URL'
       };
-      database.push(errorEntry);
+      
+      await db.collection('archives').doc(errorEntry.id).set(errorEntry);
       res.status(500).json(errorEntry);
     }
   });
 
-  // API endpoint to fetch history from the "database"
-  app.get('/api/history', (req, res) => {
-    res.json(database.sort((a, b) => parseInt(b.id) - parseInt(a.id)));
+  // API endpoint to fetch history from Firebase
+  app.get('/api/history', async (req, res) => {
+    try {
+      const snapshot = await db.collection('archives').orderBy('timestamp', 'desc').get();
+      const entries = snapshot.docs.map(doc => doc.data());
+      res.json(entries);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
-  // Helper to check authorization (admin override via secret header)
-  const isAuthorized = (req: express.Request, entry: any) => {
-    const isAdmin = req.headers['x-admin-secret'] === 'mbsczhyzbxX&7';
-    return !entry.isPublished || isAdmin;
-  };
-
   // API endpoint to delete an entry
-  app.delete('/api/history/:id', (req, res) => {
+  app.delete('/api/history/:id', async (req, res) => {
     const { id } = req.params;
-    const index = database.findIndex(entry => entry.id === id);
-    if (index !== -1) {
-      if (!isAuthorized(req, database[index])) {
+    try {
+      const docRef = db.collection('archives').doc(id);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+      
+      const entry = doc.data();
+      if (!isAuthorized(req, entry)) {
          return res.status(403).json({ error: 'Cannot modify a published archive' });
       }
-      database.splice(index, 1);
+      
+      await docRef.delete();
       res.json({ success: true });
-    } else {
-      res.status(404).json({ error: 'Not found' });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
   });
 
   // API endpoint to rename an entry
-  app.patch('/api/history/:id/name', (req, res) => {
+  app.patch('/api/history/:id/name', async (req, res) => {
     const { id } = req.params;
     const { customName } = req.body;
-    const entry = database.find(entry => entry.id === id);
-    if (entry) {
+    try {
+      const docRef = db.collection('archives').doc(id);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+      
+      const entry = doc.data();
       if (!isAuthorized(req, entry)) return res.status(403).json({ error: 'Cannot modify a published archive' });
-      entry.customName = customName || entry.customName;
-      res.json(entry);
-    } else {
-      res.status(404).json({ error: 'Not found' });
+      
+      await docRef.update({ customName: customName || entry?.customName });
+      res.json({ ...entry, customName: customName || entry?.customName });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
   });
 
   // API endpoint to toggle publish status (one-way finalize)
-  app.patch('/api/history/:id/publish', (req, res) => {
+  app.patch('/api/history/:id/publish', async (req, res) => {
     const { id } = req.params;
-    const entry = database.find(entry => entry.id === id);
-    if (entry) {
-      entry.isPublished = true;
-      res.json(entry);
-    } else {
-      res.status(404).json({ error: 'Not found' });
+    try {
+      const docRef = db.collection('archives').doc(id);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+      
+      await docRef.update({ isPublished: true });
+      res.json({ ...doc.data(), isPublished: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
   });
 
   // API endpoint to delete a link from an entry
-  app.delete('/api/history/:id/links', (req, res) => {
+  app.delete('/api/history/:id/links', async (req, res) => {
     const { id } = req.params;
     const { href } = req.body;
-    const entry = database.find(entry => entry.id === id);
-    if (entry) {
+    try {
+      const docRef = db.collection('archives').doc(id);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+      
+      const entry = doc.data();
       if (!isAuthorized(req, entry)) return res.status(403).json({ error: 'Cannot modify a published archive' });
-      entry.links = entry.links.filter((l: any) => l.href !== href);
+      
+      const newLinks = entry?.links.filter((l: any) => l.href !== href) || [];
+      await docRef.update({ links: newLinks });
       res.json({ success: true });
-    } else {
-      res.status(404).json({ error: 'Not found' });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
   });
 
   // API endpoint to upload a file to an entry
-  app.post('/api/history/:id/upload', (req, res) => {
+  app.post('/api/history/:id/upload', async (req, res) => {
     const { id } = req.params;
     const { text, href, type } = req.body;
-    const entry = database.find(entry => entry.id === id);
-    if (entry) {
+    try {
+      const docRef = db.collection('archives').doc(id);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+      
+      const entry = doc.data();
       if (!isAuthorized(req, entry)) return res.status(403).json({ error: 'Cannot modify a published archive' });
-      entry.links.push({ text, href, type });
+      
+      const newLinks = [...(entry?.links || []), { text, href, type }];
+      await docRef.update({ links: newLinks });
       res.json({ success: true });
-    } else {
-      res.status(404).json({ error: 'Not found' });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
   });
 
   // API endpoint to fetch a public shared scrape
-  app.get('/api/shared/:id', (req, res) => {
+  app.get('/api/shared/:id', async (req, res) => {
     const { id } = req.params;
-    const entry = database.find(entry => entry.id === id);
-    if (entry && entry.isPublished) {
-      res.json(entry);
-    } else {
-      res.status(404).json({ error: 'Not found or not public' });
+    try {
+      const doc = await db.collection('archives').doc(id).get();
+      if (!doc.exists) {
+        return res.status(404).json({ error: 'Not found or not public' });
+      }
+      
+      const entry = doc.data();
+      if (entry && entry.isPublished) {
+        res.json(entry);
+      } else {
+        res.status(404).json({ error: 'Not found or not public' });
+      }
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
   });
 

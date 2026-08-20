@@ -138,9 +138,9 @@ function Dashboard() {
       const file = e.target.files[0];
       if (!file) return;
       
-      // limit to 5MB for the in-memory demo
-      if (file.size > 5 * 1024 * 1024) {
-        alert('File is too large for this demo (max 5MB).');
+      // limit to 500KB for Firestore document size limits
+      if (file.size > 500 * 1024) {
+        alert('File is too large for Firestore database (max 500KB per file).');
         return;
       }
 
