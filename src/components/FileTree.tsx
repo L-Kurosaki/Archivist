@@ -112,12 +112,6 @@ export default function FileTree({ links, isEditable, onDelete }: { links: Scrap
                              <Link className="w-3.5 h-3.5 text-[#555] shrink-0 mt-0.5" />
                           )}
                           <span className={child.type === 'pdf' ? 'text-[#e0e0e0]' : 'text-[#888]'}>{child.name}</span>
-                          
-                          {child.isCloudHosted && (
-                            <span className="ml-2 text-[9px] bg-[#1a2a1a] text-[#55ff55] border border-[#2a4a2a] px-1.5 py-0.5 rounded uppercase tracking-wider font-bold whitespace-nowrap mt-0.5">
-                              Cloud
-                            </span>
-                          )}
                         </a>
                         {isEditable && onDelete && child.href && (
                           <button 

@@ -33,10 +33,15 @@ if (!getApps().length) {
       // Fallback: decode from base64
       serviceAccount = JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, 'base64').toString('utf8'));
     }
+    const customProjectId = serviceAccount.project_id;
+    // If they have their own project, the bucket is almost always <project_id>.appspot.com
+    const bucketName = process.env.FIREBASE_STORAGE_BUCKET || 
+      (customProjectId ? `${customProjectId}.appspot.com` : firebaseConfig.storageBucket);
+
     initializeApp({
       credential: cert(serviceAccount),
-      projectId: serviceAccount.project_id || firebaseConfig.projectId,
-      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket || `${serviceAccount.project_id || firebaseConfig.projectId}.firebasestorage.app`
+      projectId: customProjectId || firebaseConfig.projectId,
+      storageBucket: bucketName
     });
   } else {
     // Uses Application Default Credentials locally in AI Studio
