@@ -197,9 +197,54 @@ async function startServer() {
           console.error(`Failed to fetch ${normalizedTarget}: ${err.message}`);
         }
       }
+      
+      const scrapeId = Date.now().toString();
+      
+      // Auto-download files using the authenticated session and upload them to Firebase Storage
+      // so users don't need to log in to the original site to download them.
+      for (let i = 0; i < links.length; i++) {
+        const link = links[i];
+        if (link.type === 'pdf' || link.type === 'other') {
+          try {
+            const fileResponse = await axios.get(link.href, {
+              headers: requestHeaders,
+              responseType: 'arraybuffer',
+              timeout: 20000,
+              maxContentLength: 50 * 1024 * 1024 // 50MB limit
+            });
+            
+            const contentType = fileResponse.headers['content-type'] || 'application/octet-stream';
+            
+            // Extract a reasonable file name
+            let fileName = link.href.split('/').pop() || 'file';
+            fileName = fileName.split('?')[0]; // Remove query params
+            if (fileName.length > 50) fileName = fileName.substring(fileName.length - 50);
+            if (!fileName.includes('.')) {
+               fileName += link.type === 'pdf' ? '.pdf' : '.bin';
+            }
+            
+            const storageFilePath = `scraped_files/${scrapeId}/${Date.now()}_${fileName}`;
+            const storageFile = bucket.file(storageFilePath);
+            
+            await storageFile.save(fileResponse.data, {
+              metadata: { contentType }
+            });
+            
+            await storageFile.makePublic();
+            
+            // Overwrite the href with the public cloud URL
+            link.originalHref = link.href;
+            link.href = storageFile.publicUrl();
+            
+          } catch (fileErr: any) {
+            console.error(`Failed to auto-download file at ${link.href}:`, fileErr.message);
+            // If it fails, keep the original link.href
+          }
+        }
+      }
 
       const entry = {
-        id: Date.now().toString(),
+        id: scrapeId,
         url,
         customName: customName || url,
         timestamp: new Date().toISOString(),
