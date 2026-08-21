@@ -36,14 +36,14 @@ if (!getApps().length) {
     initializeApp({
       credential: cert(serviceAccount),
       projectId: serviceAccount.project_id || firebaseConfig.projectId,
-      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || `${serviceAccount.project_id || firebaseConfig.projectId}.appspot.com`
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket || `${serviceAccount.project_id || firebaseConfig.projectId}.firebasestorage.app`
     });
   } else {
     // Uses Application Default Credentials locally in AI Studio
     initializeApp({
       credential: applicationDefault(),
       projectId: firebaseConfig.projectId || 'gen-lang-client-0026791312',
-      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || `${firebaseConfig.projectId || 'gen-lang-client-0026791312'}.appspot.com`
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket || `${firebaseConfig.projectId || 'gen-lang-client-0026791312'}.firebasestorage.app`
     });
   }
 }
