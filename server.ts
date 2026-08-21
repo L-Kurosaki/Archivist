@@ -230,11 +230,15 @@ async function startServer() {
               metadata: { contentType }
             });
             
-            await storageFile.makePublic();
+            // Generate a long-lived signed URL instead of using makePublic (which fails on uniform bucket-level access)
+            const [signedUrl] = await storageFile.getSignedUrl({
+              action: 'read',
+              expires: '01-01-2100' // Far future expiration
+            });
             
             // Overwrite the href with the public cloud URL
             link.originalHref = link.href;
-            link.href = storageFile.publicUrl();
+            link.href = signedUrl;
             
           } catch (fileErr: any) {
             console.error(`Failed to auto-download file at ${link.href}:`, fileErr.message);
@@ -397,9 +401,12 @@ async function startServer() {
         },
       });
 
-      // Make the file public to get a permanent URL
-      await storageFile.makePublic();
-      const href = storageFile.publicUrl();
+      // Generate a long-lived signed URL instead of using makePublic
+      const [signedUrl] = await storageFile.getSignedUrl({
+        action: 'read',
+        expires: '01-01-2100' // Far future expiration
+      });
+      const href = signedUrl;
 
       const newLinks = [...(entry?.links || []), { text, href, type }];
       await docRef.update({ links: newLinks });
