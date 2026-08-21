@@ -81,6 +81,19 @@ async function startServer() {
     }
 
     try {
+      // Prevent duplicate URLs (exact match)
+      const existingUrl = await db.collection('archives').where('url', '==', url).get();
+      if (!existingUrl.empty) {
+        return res.status(400).json({ error: 'An archive for this exact URL already exists. Please delete it first if you want to re-scrape.' });
+      }
+
+      // Prevent duplicate Custom Names
+      const nameToCheck = customName || url;
+      const existingName = await db.collection('archives').where('customName', '==', nameToCheck).get();
+      if (!existingName.empty) {
+        return res.status(400).json({ error: 'An archive with this name already exists. Please choose a unique Custom Name.' });
+      }
+
       let requestHeaders: Record<string, string> = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       };

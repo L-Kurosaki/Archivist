@@ -86,7 +86,7 @@ function Dashboard() {
         body: JSON.stringify({ url, cookie, depth, customName }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.errorMessage || 'Failed to scrape website');
+      if (!res.ok) throw new Error(data.error || data.errorMessage || 'Failed to scrape website');
       await fetchHistory();
       setUrl('');
       setCustomName('');
