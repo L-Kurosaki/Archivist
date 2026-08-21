@@ -100,6 +100,17 @@ async function startServer() {
           requestHeaders['Cookie'] = cookie;
         }
       }
+      
+      // CRITICAL: Clean up headers that break requests to other domains or cause encoding issues
+      const cleanHeaders: Record<string, string> = {};
+      for (const [key, value] of Object.entries(requestHeaders)) {
+        const lowerKey = key.toLowerCase();
+        // Do not forward Host, Connection, or Accept-Encoding (let Axios handle them)
+        // Do not forward Content-Length from a past request
+        if (!['host', 'connection', 'accept-encoding', 'content-length'].includes(lowerKey)) {
+          cleanHeaders[key] = value;
+        }
+      }
 
       const links: any[] = [];
       const seenLinks = new Set<string>();
@@ -123,9 +134,10 @@ async function startServer() {
 
         try {
           const response = await axios.get(normalizedTarget, { 
-            headers: requestHeaders, 
-            timeout: 10000,
-            maxContentLength: 5000000 // Stop fetching if it's a huge binary file > 5MB
+            headers: cleanHeaders, 
+            timeout: 15000,
+            maxContentLength: 5000000, // Stop fetching if it's a huge binary file > 5MB
+            validateStatus: () => true // Do not throw on 4xx/5xx
           });
           
           const contentType = response.headers['content-type'] || '';
@@ -206,14 +218,33 @@ async function startServer() {
         const link = links[i];
         if (link.type === 'pdf' || link.type === 'other') {
           try {
+            console.log(`Attempting to auto-download: ${link.href}`);
+            
+            // For files on different domains, clean up the referer as well
+            const fileHeaders = { ...cleanHeaders };
+            if (!link.href.startsWith(baseUrlOrigin)) {
+              delete fileHeaders['referer'];
+              delete fileHeaders['Referer'];
+            }
+            
             const fileResponse = await axios.get(link.href, {
-              headers: requestHeaders,
+              headers: fileHeaders,
               responseType: 'arraybuffer',
-              timeout: 20000,
-              maxContentLength: 50 * 1024 * 1024 // 50MB limit
+              timeout: 30000,
+              maxContentLength: 50 * 1024 * 1024, // 50MB limit
+              validateStatus: () => true // Allow us to inspect status manually
             });
             
+            if (fileResponse.status >= 400) {
+              throw new Error(`Server returned status ${fileResponse.status}`);
+            }
+            
             const contentType = fileResponse.headers['content-type'] || 'application/octet-stream';
+            
+            // If the server returned an HTML login page instead of the file, reject it
+            if (contentType.includes('text/html')) {
+              throw new Error('Server returned an HTML page instead of the file (likely blocked by auth/IP restrictions).');
+            }
             
             // Extract a reasonable file name
             let fileName = link.href.split('/').pop() || 'file';
@@ -239,10 +270,13 @@ async function startServer() {
             // Overwrite the href with the public cloud URL
             link.originalHref = link.href;
             link.href = signedUrl;
+            link.isCloudHosted = true;
             
           } catch (fileErr: any) {
             console.error(`Failed to auto-download file at ${link.href}:`, fileErr.message);
-            // If it fails, keep the original link.href
+            // If it fails, keep the original link.href and mark it as failed
+            link.downloadFailed = true;
+            link.downloadError = fileErr.message;
           }
         }
       }

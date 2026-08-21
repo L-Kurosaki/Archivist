@@ -2,6 +2,10 @@ export interface ScrapedLink {
   text: string;
   href: string;
   type: 'pdf' | 'link' | 'image' | 'other';
+  originalHref?: string;
+  isCloudHosted?: boolean;
+  downloadFailed?: boolean;
+  downloadError?: string;
 }
 
 export interface ScrapedEntry {
